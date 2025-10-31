@@ -195,42 +195,65 @@ namespace SDKTemplate
 
         private async Task UnsubscribeAllAsync()
         {
-            try
+            if (speedChar != null)
             {
-                if (speedChar != null)
+                try
                 {
                     speedChar.ValueChanged -= SpeedChar_ValueChanged;
                     await speedChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error unsubscribing from SPEED: {ex.Message}");
+                }
+                finally
+                {
                     speedChar = null;
                 }
-                if (tempChar != null)
+            }
+            if (tempChar != null)
+            {
+                try
                 {
                     tempChar.ValueChanged -= TempChar_ValueChanged;
                     await tempChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error unsubscribing from TEMP: {ex.Message}");
+                }
+                finally
+                {
                     tempChar = null;
                 }
-                if (runtimeChar != null)
+            }
+            if (runtimeChar != null)
+            {
+                try
                 {
                     runtimeChar.ValueChanged -= RuntimeChar_ValueChanged;
                     await runtimeChar.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error unsubscribing from RUNTIME: {ex.Message}");
+                }
+                finally
+                {
                     runtimeChar = null;
                 }
-
-                await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
-                {
-                    SpeedText.Text = "Velocidad: -";
-                    TempText.Text = "Temperatura: -";
-                    RuntimeText.Text = "Tiempo de funcionamiento: -";
-                    UnsubscribeButton.IsEnabled = false;
-                    ReadValueButton.IsEnabled = false;
-                });
-
-                Log("Unsubscribed from all characteristics.");
             }
-            catch (Exception ex)
+
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                Log($"Unsubscribe error: {ex.Message}");
-            }
+                SpeedText.Text = "Velocidad: -";
+                TempText.Text = "Temperatura: -";
+                RuntimeText.Text = "Tiempo de funcionamiento: -";
+                UnsubscribeButton.IsEnabled = false;
+                ReadValueButton.IsEnabled = false;
+            });
+
+            Log("Unsubscribed from all characteristics.");
         }
 
         // Desconectar (botón)
@@ -268,6 +291,8 @@ namespace SDKTemplate
 
         private void DetachCharacteristicHandlers()
         {
+            // Detach event handlers before cleanup. Exceptions here are intentionally ignored 
+            // as this is a cleanup method and we want to continue even if some operations fail.
             try
             {
                 if (speedChar != null)
@@ -275,18 +300,28 @@ namespace SDKTemplate
                     speedChar.ValueChanged -= SpeedChar_ValueChanged;
                     speedChar = null;
                 }
+            }
+            catch { /* Ignore - handler may not be attached */ }
+
+            try
+            {
                 if (tempChar != null)
                 {
                     tempChar.ValueChanged -= TempChar_ValueChanged;
                     tempChar = null;
                 }
+            }
+            catch { /* Ignore - handler may not be attached */ }
+
+            try
+            {
                 if (runtimeChar != null)
                 {
                     runtimeChar.ValueChanged -= RuntimeChar_ValueChanged;
                     runtimeChar = null;
                 }
             }
-            catch { /* swallow */ }
+            catch { /* Ignore - handler may not be attached */ }
         }
 
         // Handlers de eventos ValueChanged
@@ -327,16 +362,18 @@ namespace SDKTemplate
                 string s = reader.ReadString(len);
                 return s.Trim();
             }
-            catch
+            catch (Exception ex)
             {
-                // Si no es string, intenta interpretar como números
+                // If reading as string fails, try to interpret as raw bytes
+                Log($"Failed to read buffer as string: {ex.Message}");
                 try
                 {
                     var data = buffer.ToArray();
                     return BitConverter.ToString(data);
                 }
-                catch
+                catch (Exception ex2)
                 {
+                    Log($"Failed to read buffer as bytes: {ex2.Message}");
                     return string.Empty;
                 }
             }
