@@ -64,6 +64,11 @@ namespace SDKTemplate
         /// <summary>
         /// Called whenever the user changes selection in the scenarios list.  This method will navigate to the respective
         /// sample scenario page.
+        /// 
+        /// NOTE: To enable auto-connect for Scenario2_Client, set the device id before navigation:
+        /// In your device selection handler (SelectionChanged), add:
+        ///   ((App)Application.Current).SelectedDeviceId = dev.Id;
+        /// This will pass the device id to Scenario2_Client for automatic connection.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -76,7 +81,24 @@ namespace SDKTemplate
             Scenario s = scenarioListBox.SelectedItem as Scenario;
             if (s != null)
             {
-                ScenarioFrame.Navigate(s.ClassType);
+                // Pass selected device id to Scenario2_Client for auto-connect
+                if (s.ClassType == typeof(SDKTemplate.Scenario2_Client))
+                {
+                    var app = (App)Application.Current;
+                    if (!string.IsNullOrEmpty(app.SelectedDeviceId))
+                    {
+                        ScenarioFrame.Navigate(s.ClassType, app.SelectedDeviceId);
+                    }
+                    else
+                    {
+                        ScenarioFrame.Navigate(s.ClassType);
+                    }
+                }
+                else
+                {
+                    ScenarioFrame.Navigate(s.ClassType);
+                }
+
                 if (Window.Current.Bounds.Width < 640)
                 {
                     Splitter.IsPaneOpen = false;
