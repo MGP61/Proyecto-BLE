@@ -33,3 +33,4 @@ private void DeviceListView_SelectionChanged(object sender, SelectionChangedEven
 
 The MainPage navigation logic checks if you're navigating to Scenario2_Client and automatically passes the SelectedDeviceId if available. The Scenario2_Client page will then automatically attempt to connect to the device on load.
 
+
