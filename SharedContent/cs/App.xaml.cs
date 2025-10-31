@@ -25,6 +25,12 @@ namespace SDKTemplate
     sealed partial class App : Application
     {
         /// <summary>
+        /// Stores the DeviceInformation.Id of the selected device for auto-connect scenarios.
+        /// Set this from the device selection handler before navigating to Scenario2_Client.
+        /// </summary>
+        public string SelectedDeviceId { get; set; }
+
+        /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
         /// executed, and as such is the logical equivalent of main() or WinMain().
         /// </summary>

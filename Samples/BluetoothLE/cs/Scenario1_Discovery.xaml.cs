@@ -49,6 +49,13 @@ namespace SDKTemplate
             {
                 rootPage.SelectedBleDeviceId = deviceDisplay.Id;
                 rootPage.SelectedBleDeviceName = deviceDisplay.Name;
+
+                // GUIDANCE: To enable auto-connect when navigating to Scenario2_Client,
+                // save the DeviceInformation.Id to the App's SelectedDeviceId property.
+                // This should be done in the ListView.SelectionChanged handler or similar
+                // device selection event before navigation occurs.
+                // Example:
+                //   ((App)Application.Current).SelectedDeviceId = deviceDisplay.Id;
             }
         }
         private void EnumerateButton_Click(object sender, RoutedEventArgs e)
