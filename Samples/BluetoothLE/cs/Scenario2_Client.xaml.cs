@@ -41,6 +41,11 @@ namespace SDKTemplate
         // Only one registered characteristic at a time.
         private GattCharacteristic registeredCharacteristic = null;
 
+        // MotorMonitor characteristics
+        private GattCharacteristic speedCharacteristic = null;
+        private GattCharacteristic tempCharacteristic = null;
+        private GattCharacteristic runtimeCharacteristic = null;
+
         #region UI Code
         public Scenario2_Client()
         {
@@ -60,78 +65,322 @@ namespace SDKTemplate
         {
             await ClearBluetoothLEDeviceAsync();
         }
+
+        /// <summary>
+        /// Safely parse a GUID string, returning null if parsing fails
+        /// </summary>
+        private Guid? ParseGuidSafe(string guidString)
+        {
+            if (Guid.TryParse(guidString, out Guid result))
+            {
+                return result;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Log a message to the LogText UI element
+        /// </summary>
+        private async void Log(string message)
+        {
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+                LogText.Text += $"[{timestamp}] {message}\n";
+                LogScrollViewer.ChangeView(null, LogScrollViewer.ScrollableHeight, null);
+            });
+        }
+
+        /// <summary>
+        /// Update status in both the log and the root page
+        /// </summary>
+        private void UpdateStatus(string message, NotifyType type = NotifyType.StatusMessage)
+        {
+            Log(message);
+            rootPage.NotifyUser(message, type);
+        }
         #endregion
 
         #region Enumerating Services
         private async Task ClearBluetoothLEDeviceAsync()
         {
-            // Capture the characteristic we want to unregister, in case the user changes it during the await.
+            await UnsubscribeAllAsync();
+            await CleanUpConnectionAsync();
+        }
+
+        /// <summary>
+        /// Unsubscribe from all MotorMonitor characteristics
+        /// </summary>
+        private async Task UnsubscribeAllAsync()
+        {
+            // Unsubscribe from MotorMonitor characteristics
+            if (speedCharacteristic != null)
+            {
+                speedCharacteristic.ValueChanged -= SpeedCharacteristic_ValueChanged;
+                await WriteClientCharacteristicConfigurationDescriptorSafe(speedCharacteristic, GattClientCharacteristicConfigurationDescriptorValue.None);
+                speedCharacteristic = null;
+            }
+
+            if (tempCharacteristic != null)
+            {
+                tempCharacteristic.ValueChanged -= TempCharacteristic_ValueChanged;
+                await WriteClientCharacteristicConfigurationDescriptorSafe(tempCharacteristic, GattClientCharacteristicConfigurationDescriptorValue.None);
+                tempCharacteristic = null;
+            }
+
+            if (runtimeCharacteristic != null)
+            {
+                runtimeCharacteristic.ValueChanged -= RuntimeCharacteristic_ValueChanged;
+                await WriteClientCharacteristicConfigurationDescriptorSafe(runtimeCharacteristic, GattClientCharacteristicConfigurationDescriptorValue.None);
+                runtimeCharacteristic = null;
+            }
+
+            // Unsubscribe from old registered characteristic
             GattCharacteristic characteristic = registeredCharacteristic;
             registeredCharacteristic = null;
 
             if (characteristic != null)
             {
-                // Clear the CCCD from the remote device so we stop receiving notifications
-                GattCommunicationStatus result = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None);
+                characteristic.ValueChanged -= Characteristic_ValueChanged;
+                await WriteClientCharacteristicConfigurationDescriptorSafe(characteristic, GattClientCharacteristicConfigurationDescriptorValue.None);
+            }
+
+            // Reset UI
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                SpeedText.Text = "SPEED: -";
+                TempText.Text = "TEMP: -";
+                RuntimeText.Text = "RUNTIME: -";
+            });
+        }
+
+        /// <summary>
+        /// Safely write CCCD without throwing exceptions
+        /// </summary>
+        private async Task WriteClientCharacteristicConfigurationDescriptorSafe(GattCharacteristic characteristic, GattClientCharacteristicConfigurationDescriptorValue value)
+        {
+            try
+            {
+                GattCommunicationStatus result = await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(value);
                 if (result != GattCommunicationStatus.Success)
                 {
-                    // Even if we are unable to unsubscribe, continue with the rest of the cleanup.
-                    rootPage.NotifyUser("Error: Unable to unsubscribe from notifications.", NotifyType.ErrorMessage);
+                    Log($"Warning: Unable to write CCCD for characteristic {characteristic.Uuid}");
                 }
-
-                characteristic.ValueChanged -= Characteristic_ValueChanged;
             }
-            bluetoothLeDevice?.Dispose();
-            bluetoothLeDevice = null;
+            catch (Exception ex)
+            {
+                Log($"Warning: Exception writing CCCD: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Clean up the BLE connection and dispose resources
+        /// </summary>
+        private async Task CleanUpConnectionAsync()
+        {
+            if (bluetoothLeDevice != null)
+            {
+                bluetoothLeDevice.Dispose();
+                bluetoothLeDevice = null;
+            }
+
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                MonitorPanel.Visibility = Visibility.Collapsed;
+                ActionButtonsPanel.Visibility = Visibility.Collapsed;
+                ConnectButton.Visibility = Visibility.Visible;
+            });
+        }
+
+        /// <summary>
+        /// Connect to the MotorMonitor device and automatically subscribe to its characteristics
+        /// </summary>
+        public async Task ConnectToDeviceAsync(string deviceId)
+        {
+            await ClearBluetoothLEDeviceAsync();
+
+            // Show log
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                LogHeader.Visibility = Visibility.Visible;
+                LogScrollViewer.Visibility = Visibility.Visible;
+                LogText.Text = "";
+            });
+
+            UpdateStatus("Connecting to device...");
+
+            // BT_Code: BluetoothLEDevice.FromIdAsync must be called from a UI thread because it may prompt for consent.
+            bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(deviceId);
+
+            if (bluetoothLeDevice == null)
+            {
+                UpdateStatus("Unable to find device. Maybe it isn't connected any more.", NotifyType.ErrorMessage);
+                return;
+            }
+
+            UpdateStatus($"Connected to {bluetoothLeDevice.Name}");
+
+            // Discover the MotorMonitor service by UUID
+            Guid? serviceUuid = ParseGuidSafe(Constants.MotorMonitorServiceUuid.ToString());
+            if (serviceUuid == null)
+            {
+                UpdateStatus("Error: Invalid service UUID", NotifyType.ErrorMessage);
+                return;
+            }
+
+            UpdateStatus($"Discovering service {serviceUuid}...");
+            GattDeviceServicesResult servicesResult = await bluetoothLeDevice.GetGattServicesForUuidAsync(serviceUuid.Value, BluetoothCacheMode.Uncached);
+
+            if (servicesResult.Status != GattCommunicationStatus.Success)
+            {
+                UpdateStatus($"Error accessing services: {Utilities.FormatGattCommunicationStatus(servicesResult.Status, servicesResult.ProtocolError)}", NotifyType.ErrorMessage);
+                return;
+            }
+
+            if (servicesResult.Services.Count == 0)
+            {
+                UpdateStatus("MotorMonitor service not found. Falling back to manual mode.", NotifyType.ErrorMessage);
+                // Fall back to the original manual service selection
+                await ConnectManualAsync();
+                return;
+            }
+
+            GattDeviceService motorService = servicesResult.Services[0];
+            UpdateStatus($"Found service: {motorService.Uuid}");
+
+            // Discover and subscribe to SPEED, TEMP, and RUNTIME characteristics
+            await DiscoverAndSubscribeCharacteristicsAsync(motorService);
+        }
+
+        /// <summary>
+        /// Discover and subscribe to all three MotorMonitor characteristics
+        /// </summary>
+        private async Task DiscoverAndSubscribeCharacteristicsAsync(GattDeviceService service)
+        {
+            // Request access to the service
+            DeviceAccessStatus accessStatus = await service.RequestAccessAsync();
+            if (accessStatus != DeviceAccessStatus.Allowed)
+            {
+                UpdateStatus("Error: Access to service denied.", NotifyType.ErrorMessage);
+                return;
+            }
+
+            // Get all characteristics
+            GattCharacteristicsResult characteristicsResult = await service.GetCharacteristicsAsync(BluetoothCacheMode.Uncached);
+            if (characteristicsResult.Status != GattCommunicationStatus.Success)
+            {
+                UpdateStatus($"Error accessing characteristics: {Utilities.FormatGattCommunicationStatus(characteristicsResult.Status, characteristicsResult.ProtocolError)}", NotifyType.ErrorMessage);
+                return;
+            }
+
+            UpdateStatus($"Found {characteristicsResult.Characteristics.Count} characteristic(s)");
+
+            // Find and subscribe to each characteristic
+            foreach (var characteristic in characteristicsResult.Characteristics)
+            {
+                if (characteristic.Uuid == Constants.SpeedCharacteristicUuid)
+                {
+                    speedCharacteristic = characteristic;
+                    await EnableNotifyAsync(speedCharacteristic, "SPEED", SpeedCharacteristic_ValueChanged);
+                }
+                else if (characteristic.Uuid == Constants.TempCharacteristicUuid)
+                {
+                    tempCharacteristic = characteristic;
+                    await EnableNotifyAsync(tempCharacteristic, "TEMP", TempCharacteristic_ValueChanged);
+                }
+                else if (characteristic.Uuid == Constants.RuntimeCharacteristicUuid)
+                {
+                    runtimeCharacteristic = characteristic;
+                    await EnableNotifyAsync(runtimeCharacteristic, "RUNTIME", RuntimeCharacteristic_ValueChanged);
+                }
+            }
+
+            // Show the monitoring UI
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                MonitorPanel.Visibility = Visibility.Visible;
+                ActionButtonsPanel.Visibility = Visibility.Visible;
+                ConnectButton.Visibility = Visibility.Collapsed;
+            });
+
+            UpdateStatus("Connected and subscribed.");
+        }
+
+        /// <summary>
+        /// Enable notifications for a characteristic and attach a value changed handler
+        /// </summary>
+        private async Task EnableNotifyAsync(GattCharacteristic characteristic, string name, TypedEventHandler<GattCharacteristic, GattValueChangedEventArgs> handler)
+        {
+            if (characteristic == null)
+            {
+                UpdateStatus($"Error: {name} characteristic is null", NotifyType.ErrorMessage);
+                return;
+            }
+
+            // Attach the value changed handler
+            characteristic.ValueChanged += handler;
+
+            // Enable notifications
+            try
+            {
+                GattWriteResult result = await characteristic.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(
+                    GattClientCharacteristicConfigurationDescriptorValue.Notify);
+
+                if (result.Status == GattCommunicationStatus.Success)
+                {
+                    UpdateStatus($"Subscribed to {name}");
+                }
+                else
+                {
+                    UpdateStatus($"Failed to subscribe to {name}: {Utilities.FormatGattCommunicationStatus(result.Status, result.ProtocolError)}", NotifyType.ErrorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Exception subscribing to {name}: {ex.Message}", NotifyType.ErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Fallback to manual service/characteristic selection
+        /// </summary>
+        private async Task ConnectManualAsync()
+        {
+            try
+            {
+                GattDeviceServicesResult result = await bluetoothLeDevice.GetGattServicesAsync(BluetoothCacheMode.Uncached);
+
+                if (result.Status == GattCommunicationStatus.Success)
+                {
+                    IReadOnlyList<GattDeviceService> services = result.Services;
+                    UpdateStatus($"Found {services.Count} services");
+
+                    await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+                    {
+                        foreach (var service in services)
+                        {
+                            ServiceList.Items.Add(new ComboBoxItem { Content = DisplayHelpers.GetServiceName(service), Tag = service });
+                        }
+                        ServiceList.Visibility = Visibility.Visible;
+                    });
+                }
+                else
+                {
+                    UpdateStatus($"Error: {Utilities.FormatGattCommunicationStatus(result.Status, result.ProtocolError)}", NotifyType.ErrorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Error: {ex.Message}", NotifyType.ErrorMessage);
+            }
         }
 
         private async void ConnectButton_Click(object sender, RoutedEventArgs e)
         {
             ConnectButton.IsEnabled = false;
-            ServiceList.Visibility = Visibility.Collapsed;
 
-            await ClearBluetoothLEDeviceAsync();
+            await ConnectToDeviceAsync(rootPage.SelectedBleDeviceId);
 
-            // BT_Code: BluetoothLEDevice.FromIdAsync must be called from a UI thread because it may prompt for consent.
-            bluetoothLeDevice = await BluetoothLEDevice.FromIdAsync(rootPage.SelectedBleDeviceId);
-
-            if (bluetoothLeDevice != null)
-            {
-                // Note: BluetoothLEDevice.GattServices property will return an empty list for unpaired devices. For all uses we recommend using the GetGattServicesAsync method.
-                // BT_Code: GetGattServicesAsync returns a list of all the supported services of the device (even if it's not paired to the system).
-                // If the services supported by the device are expected to change during BT usage, subscribe to the GattServicesChanged event.
-                GattDeviceServicesResult result = null;
-                try
-                {
-                    result = await bluetoothLeDevice.GetGattServicesAsync(BluetoothCacheMode.Uncached);
-                }
-                catch (TaskCanceledException)
-                {
-                    // The bluetoothLeDevice was disposed by OnNavigatedFrom while GetGattServicesAsync was running.
-                    ConnectButton.IsEnabled = true;
-                    return;
-                }
-
-                if (result.Status == GattCommunicationStatus.Success)
-                {
-                    IReadOnlyList<GattDeviceService> services = result.Services;
-                    rootPage.NotifyUser(String.Format("Found {0} services", services.Count), NotifyType.StatusMessage);
-                    foreach (var service in services)
-                    {
-                        ServiceList.Items.Add(new ComboBoxItem { Content = DisplayHelpers.GetServiceName(service), Tag = service });
-                    }
-                    ConnectButton.Visibility = Visibility.Collapsed;
-                    ServiceList.Visibility = Visibility.Visible;
-                }
-                else
-                {
-                    rootPage.NotifyUser($"Error: {Utilities.FormatGattCommunicationStatus(result.Status, result.ProtocolError)}", NotifyType.ErrorMessage);
-                }
-            }
-            else
-            {
-                rootPage.NotifyUser("Unable to find device. Maybe it isn't connected any more.", NotifyType.ErrorMessage);
-            }
             ConnectButton.IsEnabled = true;
         }
         #endregion
@@ -393,6 +642,83 @@ namespace SDKTemplate
                 // Service is no longer available.
                 rootPage.NotifyUser($"{operation} failed: Service is no longer available.", NotifyType.ErrorMessage);
             }
+        }
+
+        private async void ReadButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Read all three characteristics
+            if (speedCharacteristic != null)
+            {
+                await ReadCharacteristicValueAsync(speedCharacteristic, "SPEED");
+            }
+            if (tempCharacteristic != null)
+            {
+                await ReadCharacteristicValueAsync(tempCharacteristic, "TEMP");
+            }
+            if (runtimeCharacteristic != null)
+            {
+                await ReadCharacteristicValueAsync(runtimeCharacteristic, "RUNTIME");
+            }
+        }
+
+        private async Task ReadCharacteristicValueAsync(GattCharacteristic characteristic, string name)
+        {
+            try
+            {
+                GattReadResult result = await characteristic.ReadValueAsync(BluetoothCacheMode.Uncached);
+                if (result.Status == GattCommunicationStatus.Success)
+                {
+                    string value = FormatValueByPresentation(characteristic, result.Value);
+                    UpdateStatus($"{name} read: {value}");
+                }
+                else
+                {
+                    UpdateStatus($"Failed to read {name}: {Utilities.FormatGattCommunicationStatus(result.Status, result.ProtocolError)}", NotifyType.ErrorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Exception reading {name}: {ex.Message}", NotifyType.ErrorMessage);
+            }
+        }
+
+        private async void UnsubscribeButton_Click(object sender, RoutedEventArgs e)
+        {
+            await UnsubscribeAllAsync();
+            UpdateStatus("Unsubscribed from all characteristics");
+        }
+
+        private async void DisconnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            await ClearBluetoothLEDeviceAsync();
+            UpdateStatus("Disconnected");
+        }
+
+        private async void SpeedCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
+        {
+            string value = FormatValueByPresentation(sender, args.CharacteristicValue);
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                SpeedText.Text = $"SPEED: {value}";
+            });
+        }
+
+        private async void TempCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
+        {
+            string value = FormatValueByPresentation(sender, args.CharacteristicValue);
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                TempText.Text = $"TEMP: {value}";
+            });
+        }
+
+        private async void RuntimeCharacteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)
+        {
+            string value = FormatValueByPresentation(sender, args.CharacteristicValue);
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                RuntimeText.Text = $"RUNTIME: {value}";
+            });
         }
 
         private async void Characteristic_ValueChanged(GattCharacteristic sender, GattValueChangedEventArgs args)

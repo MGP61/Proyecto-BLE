@@ -31,6 +31,28 @@
                 Selected device: <Run x:Name="SelectedDeviceRun" FontWeight="Bold"/>
             </TextBlock>
             <Button x:Name="ConnectButton" Content="Connect" Click="ConnectButton_Click" Margin="0,10,0,0"/>
+
+            <!-- Monitored Values Display -->
+            <StackPanel x:Name="MonitorPanel" Margin="0,10,0,0" Visibility="Collapsed">
+                <TextBlock Text="Monitored Values:" FontWeight="Bold" Margin="0,0,0,5"/>
+                <TextBlock x:Name="SpeedText" Text="SPEED: -" Margin="0,2,0,0"/>
+                <TextBlock x:Name="TempText" Text="TEMP: -" Margin="0,2,0,0"/>
+                <TextBlock x:Name="RuntimeText" Text="RUNTIME: -" Margin="0,2,0,0"/>
+            </StackPanel>
+
+            <!-- Action Buttons -->
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0" x:Name="ActionButtonsPanel" Visibility="Collapsed">
+                <Button x:Name="ReadButton" Content="Read" Click="ReadButton_Click" Margin="0,0,10,0"/>
+                <Button x:Name="UnsubscribeButton" Content="Unsubscribe" Click="UnsubscribeButton_Click" Margin="0,0,10,0"/>
+                <Button x:Name="DisconnectButton" Content="Disconnect" Click="DisconnectButton_Click" Margin="0,0,0,0"/>
+            </StackPanel>
+
+            <!-- Log Display -->
+            <TextBlock Text="Log:" FontWeight="Bold" Margin="0,10,0,5" x:Name="LogHeader" Visibility="Collapsed"/>
+            <ScrollViewer MaxHeight="200" Margin="0,0,0,0" x:Name="LogScrollViewer" Visibility="Collapsed">
+                <TextBlock x:Name="LogText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+            </ScrollViewer>
+
             <ComboBox x:Name="ServiceList" Margin="0,10,0,0" PlaceholderText="Choose a service" Visibility="Collapsed"
                       SelectionChanged="ServiceList_SelectionChanged"/>
             <ComboBox x:Name="CharacteristicList" Margin="0,10,0,0" PlaceholderText="Choose a characteristic" Visibility="Collapsed"

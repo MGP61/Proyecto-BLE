@@ -67,5 +67,11 @@ namespace SDKTemplate
 
         // Name of data container for sharing Calculator service data between background and foreground.
         public static string CalculatorContainerName => "Calculator";
+
+        // MotorMonitor service and characteristic UUIDs
+        public static Guid MotorMonitorServiceUuid { get; } = Guid.Parse("12345678-1234-5678-1234-56789abcdef0");
+        public static Guid SpeedCharacteristicUuid { get; } = Guid.Parse("12345678-1234-5678-1234-56789abcdef1");
+        public static Guid TempCharacteristicUuid { get; } = Guid.Parse("12345678-1234-5678-1234-56789abcdef2");
+        public static Guid RuntimeCharacteristicUuid { get; } = Guid.Parse("12345678-1234-5678-1234-56789abcdef3");
     }
 }
