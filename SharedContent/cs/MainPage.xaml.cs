@@ -76,7 +76,24 @@ namespace SDKTemplate
             Scenario s = scenarioListBox.SelectedItem as Scenario;
             if (s != null)
             {
-                ScenarioFrame.Navigate(s.ClassType);
+                // Check if navigating to Scenario2_Client and if a device ID is available
+                if (s.ClassType == typeof(SDKTemplate.Scenario2_Client))
+                {
+                    var app = (App)Application.Current;
+                    if (!string.IsNullOrEmpty(app.SelectedDeviceId))
+                    {
+                        ScenarioFrame.Navigate(s.ClassType, app.SelectedDeviceId);
+                    }
+                    else
+                    {
+                        ScenarioFrame.Navigate(s.ClassType);
+                    }
+                }
+                else
+                {
+                    ScenarioFrame.Navigate(s.ClassType);
+                }
+                
                 if (Window.Current.Bounds.Width < 640)
                 {
                     Splitter.IsPaneOpen = false;

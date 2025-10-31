@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.UI.Xaml.Navigation;
 using Windows.Storage.Streams;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
@@ -29,6 +30,35 @@ namespace SDKTemplate
         {
             this.InitializeComponent();
             UpdateUiDisconnected();
+        }
+
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+
+            // Check if a device ID was passed during navigation
+            if (e.Parameter is string deviceId && !string.IsNullOrEmpty(deviceId))
+            {
+                Log($"OnNavigatedTo: Received device ID: {deviceId}");
+                
+                try
+                {
+                    // Attempt to connect using the device ID
+                    var device = await BluetoothLEDevice.FromIdAsync(deviceId);
+                    if (device != null)
+                    {
+                        await ConnectToDeviceAsync(device.BluetoothAddress);
+                    }
+                    else
+                    {
+                        Log($"Failed to get BluetoothLEDevice from ID: {deviceId}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error auto-connecting to device: {ex.Message}");
+                }
+            }
         }
 
         // Método público para iniciar la conexión desde tu flujo (p. ej. pasando bluetooth address)
