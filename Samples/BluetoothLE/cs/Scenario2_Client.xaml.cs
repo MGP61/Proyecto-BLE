@@ -44,6 +44,81 @@ namespace SDKTemplate
         private GattCharacteristic runtimeChar;
 
         // Método auxiliar para parsear y detectar errores
+        // Add this method inside the Scenario2_Client class (e.g., after the constructor)
+        protected override async void OnNavigatedTo(Windows.UI.Xaml.Navigation.NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+
+            try
+            {
+                // Si la navegación pasó un ulong (bluetooth address) como parámetro:
+                if (e.Parameter is ulong addr)
+                {
+                    await ConnectToDeviceAsync(addr);
+                    return;
+                }
+
+                // Si la navegación pasó un string con la dirección en hex o decimal:
+                if (e.Parameter is string s)
+                {
+                    // Intentar parsear hex (0x...) o decimal
+                    if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (ulong.TryParse(s.Substring(2), System.Globalization.NumberStyles.HexNumber, null, out ulong parsedHex))
+                        {
+                            await ConnectToDeviceAsync(parsedHex);
+                            return;
+                        }
+                    }
+                    else if (ulong.TryParse(s, out ulong parsedDec))
+                    {
+                        await ConnectToDeviceAsync(parsedDec);
+                        return;
+                    }
+
+                    // Si el parámetro es el DeviceInformation.Id (string), intentar crear BluetoothLEDevice desde Id
+                    try
+                    {
+                        var device = await BluetoothLEDevice.FromIdAsync(s);
+                        if (device != null)
+                        {
+                            // Si el dispositivo se obtuvo desde Id, usa su BluetoothAddress
+                            await ConnectToDeviceAsync(device.BluetoothAddress);
+                            return;
+                        }
+                    }
+                    catch
+                    {
+                        // ignore and continue
+                    }
+                }
+
+                // Si te pasaron un DeviceInformation u otro objeto con Id
+                var type = e.Parameter?.GetType();
+                if (type != null && type.Name == "DeviceInformation") // avoid referencing Windows.Devices.Enumeration here
+                {
+                    dynamic devInfo = e.Parameter;
+                    try
+                    {
+                        string id = devInfo.Id as string;
+                        if (!string.IsNullOrEmpty(id))
+                        {
+                            var device = await BluetoothLEDevice.FromIdAsync(id);
+                            if (device != null)
+                            {
+                                await ConnectToDeviceAsync(device.BluetoothAddress);
+                                return;
+                            }
+                        }
+                    }
+                    catch { /* ignore */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Auto-connect error: {ex.Message}");
+            }
+        }
         private static Guid ParseGuidSafe(string s)
         {
             if (string.IsNullOrWhiteSpace(s))
