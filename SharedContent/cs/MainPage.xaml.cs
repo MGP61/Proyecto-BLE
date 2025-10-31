@@ -76,7 +76,27 @@ namespace SDKTemplate
             Scenario s = scenarioListBox.SelectedItem as Scenario;
             if (s != null)
             {
-                ScenarioFrame.Navigate(s.ClassType);
+                // Pass the selected device ID to Scenario2_Client if available
+                // To save the device ID before navigation, use:
+                // ((App)Application.Current).SelectedDeviceId = dev.Id;
+                // in your device selection handler (e.g., ListView.SelectionChanged) before navigating
+                if (s.ClassType == typeof(SDKTemplate.Scenario2_Client))
+                {
+                    var app = (App)Application.Current;
+                    if (!string.IsNullOrEmpty(app.SelectedDeviceId))
+                    {
+                        ScenarioFrame.Navigate(s.ClassType, app.SelectedDeviceId);
+                    }
+                    else
+                    {
+                        ScenarioFrame.Navigate(s.ClassType);
+                    }
+                }
+                else
+                {
+                    ScenarioFrame.Navigate(s.ClassType);
+                }
+                
                 if (Window.Current.Bounds.Width < 640)
                 {
                     Splitter.IsPaneOpen = false;
